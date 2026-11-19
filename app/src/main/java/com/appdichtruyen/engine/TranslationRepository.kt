@@ -36,8 +36,13 @@ class TranslationRepository(private val prefs: AppPreferences) {
     private val cache = LruCache<String, String>(1500)
     private val mlkitTranslators = mutableMapOf<SourceLanguage, Translator>()
 
+    private fun normalizeOcrText(text: String): String =
+        text.trim()
+            .replace(Regex("-\\s+"), "")
+            .replace(Regex("\\s+"), " ")
+
     private fun cacheKey(lang: SourceLanguage, mode: TranslateMode, text: String): String =
-        "${lang.code}|${mode.code}|${text.trim().replace(Regex("\\s+"), " ")}"
+        "${lang.code}|${mode.code}|${normalizeOcrText(text)}"
 
     suspend fun translateBubbles(bubbles: List<SpeechBubble>): List<SpeechBubble> =
         withContext(Dispatchers.IO) {
@@ -156,8 +161,10 @@ class TranslationRepository(private val prefs: AppPreferences) {
 
         val prompt = """
             Bạn là biên dịch viên truyện tranh (manga/manhwa/manhua/comic) sang tiếng Việt.
-            Dịch các bóng thoại sau sang tiếng Việt tự nhiên, ngắn gọn để vừa khít khung thoại, đúng văn phong truyện tranh.
-            CHỈ trả về mảng JSON dạng [{"id": 0, "vi": "..."}].
+            Quy tắc bắt buộc:
+            1. Dịch cực kỳ ngắn gọn, súc tích, bỏ từ thừa để chữ nằm lọt vừa khít bóng thoại hẹp.
+            2. Văn phong hội thoại truyện tranh tự nhiên, xưng hô đúng ngữ cảnh (tôi/cậu, tao/mày, huynh/đệ, anh/em).
+            3. CHỈ trả về mảng JSON dạng [{"id": 0, "vi": "..."}].
             Input: $items
         """.trimIndent()
 

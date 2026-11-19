@@ -342,7 +342,7 @@ class ScreenTranslateService : Service() {
                 overlayView?.visibility = View.INVISIBLE
                 dockController?.setVisibleForCapture(false)
             }
-            delay(50)
+            delay(85)
 
             val cleanBitmap = grabLatestBitmap()
 
@@ -360,7 +360,13 @@ class ScreenTranslateService : Service() {
                 val rawLines = ocrProcessor.detectLines(cleanBitmap, lang)
                 // Ignore any text overlapping the floating dock area
                 val filteredLines = rawLines.filter { !Rect.intersects(it.bounds, dockBounds) }
-                val bubbles = BubbleGrouper.groupLines(filteredLines, cleanBitmap, lang)
+                val bubbles = BubbleGrouper.groupLines(
+                    lines = filteredLines,
+                    bitmap = cleanBitmap,
+                    language = lang,
+                    screenWidth = screenW,
+                    screenHeight = screenH
+                )
                 if (bubbles.isNotEmpty()) {
                     translationRepo.translateBubbles(bubbles)
                 }

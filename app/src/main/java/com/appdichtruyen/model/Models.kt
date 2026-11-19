@@ -1,5 +1,6 @@
 package com.appdichtruyen.model
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
 
@@ -17,7 +18,8 @@ data class SpeechBubble(
     val bgColor: Int = Color.WHITE,
     val textColor: Int = Color.rgb(20, 20, 24),
     val isComplexBg: Boolean = false,
-    var engineTag: String = ""
+    var engineTag: String = "",
+    val blurPatch: Bitmap? = null
 ) {
     fun shifted(dy: Int): SpeechBubble {
         val shiftedRect = Rect(bounds.left, bounds.top + dy, bounds.right, bounds.bottom + dy)
