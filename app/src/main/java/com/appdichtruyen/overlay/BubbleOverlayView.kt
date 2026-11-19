@@ -38,12 +38,15 @@ class BubbleOverlayView(context: Context) : View(context) {
 
     private val clipPath = Path()
     private val rectF = RectF()
+    private val screenLoc = IntArray(2)
 
     private var bubbles: List<SpeechBubble> = emptyList()
+    private var sourceW: Int = 0
+    private var sourceH: Int = 0
     private var overlayAlpha: Int = 245
     private var overlayEnabled: Boolean = true
-    private val maxCornerRadius = dp(10f)
-    private val minSp = 6.5f
+    private val maxCornerRadius = dp(8f)
+    private val minSp = 7f
     private val maxSp = 20f
 
     fun setOverlayAlpha(alpha: Int) {
@@ -56,8 +59,10 @@ class BubbleOverlayView(context: Context) : View(context) {
         postInvalidate()
     }
 
-    fun updateBubbles(newBubbles: List<SpeechBubble>) {
+    fun updateBubbles(newBubbles: List<SpeechBubble>, captureWidth: Int = 0, captureHeight: Int = 0) {
         bubbles = newBubbles
+        if (captureWidth > 0) sourceW = captureWidth
+        if (captureHeight > 0) sourceH = captureHeight
         postInvalidate()
     }
 
@@ -72,17 +77,26 @@ class BubbleOverlayView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (!overlayEnabled || bubbles.isEmpty()) return
+        if (!overlayEnabled || bubbles.isEmpty() || width <= 0 || height <= 0) return
+
+        // Compensate for any status bar / display cutout offset applied by WindowManager
+        getLocationOnScreen(screenLoc)
+        val offsetX = screenLoc[0].toFloat()
+        val offsetY = screenLoc[1].toFloat()
+
+        // Scale from captured bitmap coordinates to screen coordinates if they differ
+        val sx = if (sourceW > 0 && sourceW != width) width.toFloat() / sourceW.toFloat() else 1f
+        val sy = if (sourceH > 0 && sourceH != height) height.toFloat() / sourceH.toFloat() else 1f
 
         for (bubble in bubbles) {
             val text = bubble.translatedText.trim()
             if (text.isEmpty()) continue
 
             val b = bubble.bounds
-            val left = b.left.toFloat().coerceIn(0f, width.toFloat())
-            val top = b.top.toFloat().coerceIn(0f, height.toFloat())
-            val right = b.right.toFloat().coerceIn(0f, width.toFloat())
-            val bottom = b.bottom.toFloat().coerceIn(0f, height.toFloat())
+            val left = (b.left * sx - offsetX).coerceIn(0f, width.toFloat())
+            val top = (b.top * sy - offsetY).coerceIn(0f, height.toFloat())
+            val right = (b.right * sx - offsetX).coerceIn(0f, width.toFloat())
+            val bottom = (b.bottom * sy - offsetY).coerceIn(0f, height.toFloat())
             val boxW = right - left
             val boxH = bottom - top
             if (boxW < dp(16f) || boxH < dp(12f)) continue

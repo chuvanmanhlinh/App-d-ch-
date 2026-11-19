@@ -153,44 +153,46 @@ object BubbleGrouper {
         val sizeA = if (a.isVertical) a.bounds.width() else a.bounds.height()
         val sizeB = if (b.isVertical) b.bounds.width() else b.bounds.height()
         val ratio = max(sizeA, sizeB).toFloat() / max(1, min(sizeA, sizeB)).toFloat()
-        if (ratio > 2.0f) return false
+        if (ratio > 1.75f) return false
 
-        val padX: Int
-        val padY: Int
         if (verticalMode) {
             val charW = max(14, min(a.bounds.width(), b.bounds.width()))
-            padX = (charW * 0.65f).roundToInt()
-            padY = (charW * 0.40f).roundToInt()
+            val padX = (charW * 0.65f).roundToInt()
+            val padY = (charW * 0.45f).roundToInt()
 
-            // Vertical manga columns must overlap vertically or be closely aligned on Y
             val overlapY = min(a.bounds.bottom, b.bounds.bottom) - max(a.bounds.top, b.bounds.top)
-            val minH = min(a.bounds.height(), b.bounds.height())
             if (overlapY < -padY && abs(a.bounds.centerY() - b.bounds.centerY()) > max(a.bounds.height(), b.bounds.height())) {
                 return false
             }
-            if (minH > 0 && overlapY < 0 && abs(a.bounds.centerX() - b.bounds.centerX()) > charW * 1.4f) {
+            if (overlapY < 0 && abs(a.bounds.centerX() - b.bounds.centerX()) > charW * 1.4f) {
                 return false
             }
-        } else {
-            val lineH = max(14, min(a.bounds.height(), b.bounds.height()))
-            padX = (lineH * 0.48f).roundToInt()
-            padY = (lineH * 0.42f).roundToInt()
-
-            // Horizontal lines in the same speech bubble must overlap horizontally (stacked lines)
-            // or sit on roughly the same horizontal row. Prevents merging two side-by-side bubbles.
-            val overlapX = min(a.bounds.right, b.bounds.right) - max(a.bounds.left, b.bounds.left)
-            val overlapY = min(a.bounds.bottom, b.bounds.bottom) - max(a.bounds.top, b.bounds.top)
-            if (overlapX <= 0 && overlapY <= 0) return false
-            if (overlapY <= 0 && overlapX < min(a.bounds.width(), b.bounds.width()) * 0.25f) return false
+            val expanded = Rect(
+                a.bounds.left - padX,
+                a.bounds.top - padY,
+                a.bounds.right + padX,
+                a.bounds.bottom + padY
+            )
+            return Rect.intersects(expanded, b.bounds)
         }
 
-        val expanded = Rect(
-            a.bounds.left - padX,
-            a.bounds.top - padY,
-            a.bounds.right + padX,
-            a.bounds.bottom + padY
-        )
-        return Rect.intersects(expanded, b.bounds)
+        val lineH = max(14, min(a.bounds.height(), b.bounds.height()))
+        val overlapX = min(a.bounds.right, b.bounds.right) - max(a.bounds.left, b.bounds.left)
+        val overlapY = min(a.bounds.bottom, b.bounds.bottom) - max(a.bounds.top, b.bounds.top)
+        val gapX = -overlapX
+        val gapY = -overlapY
+
+        val sameRow = overlapY >= min(a.bounds.height(), b.bounds.height()) * 0.35f
+        if (sameRow) {
+            // Only merge horizontally if words are right next to each other on the same line
+            return gapX <= (lineH * 0.65f).roundToInt() && ratio <= 1.55f
+        }
+
+        // Stacked lines in the same speech bubble / paragraph
+        val minW = min(a.bounds.width(), b.bounds.width())
+        return overlapX >= (minW * 0.20f).roundToInt() &&
+            gapY <= (lineH * 0.78f).roundToInt() &&
+            ratio <= 1.65f
     }
 
     private fun resolveOverlaps(rects: List<Rect>) {
