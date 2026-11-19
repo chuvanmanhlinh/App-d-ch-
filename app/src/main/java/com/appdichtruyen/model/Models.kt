@@ -28,14 +28,15 @@ data class SpeechBubble(
 }
 
 enum class SourceLanguage(val code: String, val label: String) {
-    ENGLISH("en", "Tiếng Anh (Comic)"),
+    AUTO("auto", "Tự động (Mọi ngôn ngữ)"),
+    ENGLISH("en", "Tiếng Anh / Latin"),
     JAPANESE("ja", "Tiếng Nhật (Manga)"),
     KOREAN("ko", "Tiếng Hàn (Manhwa)"),
     CHINESE("zh", "Tiếng Trung (Manhua)");
 
     companion object {
         fun fromCode(code: String?): SourceLanguage =
-            entries.firstOrNull { it.code == code } ?: ENGLISH
+            entries.firstOrNull { it.code == code } ?: AUTO
     }
 }
 

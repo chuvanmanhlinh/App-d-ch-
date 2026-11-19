@@ -74,7 +74,7 @@ object BubbleGrouper {
             if (ra != rb) parent[ra] = rb
         }
 
-        val preferVertical = (language == SourceLanguage.JAPANESE)
+        val preferVertical = (language == SourceLanguage.JAPANESE || language == SourceLanguage.AUTO)
         for (i in 0 until n) {
             for (j in i + 1 until n) {
                 val verticalPair = preferVertical && (valid[i].isVertical || valid[j].isVertical)

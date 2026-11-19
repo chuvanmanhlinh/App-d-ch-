@@ -10,7 +10,7 @@ class AppPreferences(context: Context) {
         context.applicationContext.getSharedPreferences("app_dich_truyen_prefs", Context.MODE_PRIVATE)
 
     var sourceLanguage: SourceLanguage
-        get() = SourceLanguage.fromCode(prefs.getString(KEY_SOURCE_LANG, SourceLanguage.ENGLISH.code))
+        get() = SourceLanguage.fromCode(prefs.getString(KEY_SOURCE_LANG, SourceLanguage.AUTO.code))
         set(value) = prefs.edit().putString(KEY_SOURCE_LANG, value.code).apply()
 
     var translateMode: TranslateMode

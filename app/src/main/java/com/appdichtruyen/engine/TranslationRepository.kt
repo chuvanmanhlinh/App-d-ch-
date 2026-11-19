@@ -107,6 +107,7 @@ class TranslationRepository(private val prefs: AppPreferences) {
 
     private fun translateBatchGoogle(bubbles: List<SpeechBubble>, lang: SourceLanguage) {
         val sl = when (lang) {
+            SourceLanguage.AUTO -> "auto"
             SourceLanguage.CHINESE -> "zh-CN"
             else -> lang.code
         }
@@ -214,16 +215,27 @@ class TranslationRepository(private val prefs: AppPreferences) {
     }
 
     private fun mlKitSourceCode(lang: SourceLanguage): String = when (lang) {
-        SourceLanguage.ENGLISH -> TranslateLanguage.ENGLISH
+        SourceLanguage.ENGLISH, SourceLanguage.AUTO -> TranslateLanguage.ENGLISH
         SourceLanguage.JAPANESE -> TranslateLanguage.JAPANESE
         SourceLanguage.KOREAN -> TranslateLanguage.KOREAN
         SourceLanguage.CHINESE -> TranslateLanguage.CHINESE
     }
 
+    private fun detectOfflineLang(text: String): SourceLanguage {
+        for (ch in text) {
+            val code = ch.code
+            if (code in 0x3040..0x30FF) return SourceLanguage.JAPANESE
+            if (code in 0xAC00..0xD7AF || code in 0x1100..0x11FF) return SourceLanguage.KOREAN
+        }
+        if (text.any { it.code in 0x4E00..0x9FFF }) return SourceLanguage.CHINESE
+        return SourceLanguage.ENGLISH
+    }
+
     private fun getOrCreateMlKitTranslator(lang: SourceLanguage): Translator {
-        return mlkitTranslators.getOrPut(lang) {
+        val resolved = if (lang == SourceLanguage.AUTO) SourceLanguage.ENGLISH else lang
+        return mlkitTranslators.getOrPut(resolved) {
             val options = TranslatorOptions.Builder()
-                .setSourceLanguage(mlKitSourceCode(lang))
+                .setSourceLanguage(mlKitSourceCode(resolved))
                 .setTargetLanguage(TranslateLanguage.VIETNAMESE)
                 .build()
             Translation.getClient(options)
@@ -231,18 +243,31 @@ class TranslationRepository(private val prefs: AppPreferences) {
     }
 
     private suspend fun translateBatchOffline(bubbles: List<SpeechBubble>, lang: SourceLanguage) {
-        val translator = getOrCreateMlKitTranslator(lang)
         val conditions = DownloadConditions.Builder().build()
-        translator.downloadModelIfNeeded(conditions).await()
-        for (b in bubbles) {
-            b.translatedText = translator.translate(b.sourceText).await().ifBlank { b.sourceText }
-            b.engineTag = "Offline"
+        if (lang != SourceLanguage.AUTO) {
+            val translator = getOrCreateMlKitTranslator(lang)
+            translator.downloadModelIfNeeded(conditions).await()
+            for (b in bubbles) {
+                b.translatedText = translator.translate(b.sourceText).await().ifBlank { b.sourceText }
+                b.engineTag = "Offline"
+            }
+            return
+        }
+
+        val grouped = bubbles.groupBy { detectOfflineLang(it.sourceText) }
+        for ((detectedLang, group) in grouped) {
+            val translator = getOrCreateMlKitTranslator(detectedLang)
+            translator.downloadModelIfNeeded(conditions).await()
+            for (b in group) {
+                b.translatedText = translator.translate(b.sourceText).await().ifBlank { b.sourceText }
+                b.engineTag = "Offline"
+            }
         }
     }
 
     suspend fun downloadAllOfflineModels(onProgress: (String) -> Unit) = withContext(Dispatchers.IO) {
         val conditions = DownloadConditions.Builder().build()
-        for (lang in SourceLanguage.entries) {
+        for (lang in SourceLanguage.entries.filter { it != SourceLanguage.AUTO }) {
             onProgress("Đang tải gói Offline: ${lang.label} → Việt...")
             val translator = getOrCreateMlKitTranslator(lang)
             translator.downloadModelIfNeeded(conditions).await()
