@@ -11,6 +11,11 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -105,30 +110,36 @@ class TranslationRepository(private val prefs: AppPreferences) {
             bubbles
         }
 
-    private fun translateBatchGoogle(bubbles: List<SpeechBubble>, lang: SourceLanguage) {
+    private suspend fun translateBatchGoogle(bubbles: List<SpeechBubble>, lang: SourceLanguage) {
         val sl = when (lang) {
             SourceLanguage.AUTO -> "auto"
             SourceLanguage.CHINESE -> "zh-CN"
             else -> lang.code
         }
-        val delim = "\n<<<B_SPLIT>>>\n"
-        val combined = bubbles.joinToString(delim) { it.sourceText }
 
-        if (bubbles.size > 1 && combined.length < 3500) {
-            val translatedAll = callGoogleTranslateApi(combined, sl, "vi")
-            val parts = translatedAll.split(Regex("<<<\\s*B_SPLIT\\s*>>>")).map { it.trim() }
-            if (parts.size == bubbles.size) {
-                for (i in bubbles.indices) {
-                    bubbles[i].translatedText = parts[i].ifBlank { bubbles[i].sourceText }
-                    bubbles[i].engineTag = "Google"
+        // Translate each bubble independently in parallel (max 5 concurrent)
+        // so no bubble is ever dropped or merged by a delimiter failure.
+        val gate = Semaphore(5)
+        coroutineScope {
+            bubbles.map { bubble ->
+                async(Dispatchers.IO) {
+                    gate.withPermit {
+                        val cleaned = normalizeOcrText(bubble.sourceText)
+                        val translated = runCatching {
+                            callGoogleTranslateApi(cleaned, sl, "vi")
+                        }.getOrElse {
+                            runCatching { callGoogleTranslateApi(cleaned, sl, "vi") }.getOrNull()
+                        }
+                        if (!translated.isNullOrBlank()) {
+                            bubble.translatedText = translated
+                            bubble.engineTag = "Google"
+                        } else {
+                            bubble.translatedText = bubble.sourceText
+                            bubble.engineTag = "Lỗi mạng"
+                        }
+                    }
                 }
-                return
-            }
-        }
-
-        for (b in bubbles) {
-            b.translatedText = callGoogleTranslateApi(b.sourceText, sl, "vi").ifBlank { b.sourceText }
-            b.engineTag = "Google"
+            }.awaitAll()
         }
     }
 

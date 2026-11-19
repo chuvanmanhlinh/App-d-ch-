@@ -98,13 +98,25 @@ class OcrProcessor {
         for (item in scored) {
             val r = item.line.bounds
             val overlapsExisting = kept.any { existing ->
-                overlapRatio(r, existing.bounds) > 0.50f
+                iouRatio(r, existing.bounds) > 0.45f
             }
             if (!overlapsExisting) {
                 kept.add(item.line)
             }
         }
         return kept
+    }
+
+    private fun iouRatio(a: Rect, b: Rect): Float {
+        if (!Rect.intersects(a, b)) return 0f
+        val iw = min(a.right, b.right) - max(a.left, b.left)
+        val ih = min(a.bottom, b.bottom) - max(a.top, b.top)
+        if (iw <= 0 || ih <= 0) return 0f
+        val interArea = iw.toFloat() * ih.toFloat()
+        val areaA = (a.width() * a.height()).coerceAtLeast(1).toFloat()
+        val areaB = (b.width() * b.height()).coerceAtLeast(1).toFloat()
+        val unionArea = (areaA + areaB - interArea).coerceAtLeast(1f)
+        return interArea / unionArea
     }
 
     private fun scoreLineForEngine(text: String, engine: SourceLanguage): Int {
@@ -132,16 +144,6 @@ class OcrProcessor {
             latin > 0 -> if (engine == SourceLanguage.ENGLISH) 1000 + text.length else 200
             else -> 10
         }
-    }
-
-    private fun overlapRatio(a: Rect, b: Rect): Float {
-        if (!Rect.intersects(a, b)) return 0f
-        val iw = min(a.right, b.right) - max(a.left, b.left)
-        val ih = min(a.bottom, b.bottom) - max(a.top, b.top)
-        if (iw <= 0 || ih <= 0) return 0f
-        val interArea = iw.toFloat() * ih.toFloat()
-        val minArea = min(a.width() * a.height(), b.width() * b.height()).coerceAtLeast(1).toFloat()
-        return interArea / minArea
     }
 
     fun close() {

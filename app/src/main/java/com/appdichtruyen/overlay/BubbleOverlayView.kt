@@ -99,7 +99,7 @@ class BubbleOverlayView(context: Context) : View(context) {
             val rawBottom = (b.bottom * sy - offsetY).coerceIn(0f, height.toFloat())
             val rawW = rawRight - rawLeft
             val rawH = rawBottom - rawTop
-            if (rawW < dp(16f) || rawH < dp(12f)) continue
+            if (rawW < 10f || rawH < 8f) continue
 
             // Prepare text style before fitting so measurements match actual draw
             textPaint.color = bubble.textColor

@@ -48,8 +48,8 @@ object BubbleGrouper {
         val bottomSafeY = if (screenHeight > 0) (screenHeight * 0.945f).roundToInt() else Int.MAX_VALUE
 
         val valid = lines.filter {
-            it.bounds.width() >= 12 &&
-                it.bounds.height() >= 12 &&
+            it.bounds.width() >= 6 &&
+                it.bounds.height() >= 6 &&
                 it.bounds.bottom > topSafeY &&
                 it.bounds.top < bottomSafeY &&
                 isMeaningfulText(it.text)
@@ -78,7 +78,7 @@ object BubbleGrouper {
         for (i in 0 until n) {
             for (j in i + 1 until n) {
                 val verticalPair = preferVertical && (valid[i].isVertical || valid[j].isVertical)
-                if (shouldMerge(valid[i], valid[j], verticalPair)) {
+                if (shouldMerge(valid[i], valid[j], verticalPair, bitmap)) {
                     union(i, j)
                 }
             }
@@ -118,7 +118,7 @@ object BubbleGrouper {
 
         val bubbles = mutableListOf<SpeechBubble>()
         for ((mergedText, rect) in rawRects) {
-            if (rect.width() < 16 || rect.height() < 14) continue
+            if (rect.width() < 8 || rect.height() < 8) continue
 
             val (bgColor, textColor, isComplex) = if (bitmap != null) {
                 sampleBubbleColors(bitmap, rect)
@@ -149,22 +149,27 @@ object BubbleGrouper {
         return bubbles.sortedWith(compareBy({ it.bounds.top / 48 }, { it.bounds.left }))
     }
 
-    private fun shouldMerge(a: OcrLine, b: OcrLine, verticalMode: Boolean): Boolean {
+    private fun shouldMerge(
+        a: OcrLine,
+        b: OcrLine,
+        verticalMode: Boolean,
+        bitmap: Bitmap?
+    ): Boolean {
         val sizeA = if (a.isVertical) a.bounds.width() else a.bounds.height()
         val sizeB = if (b.isVertical) b.bounds.width() else b.bounds.height()
         val ratio = max(sizeA, sizeB).toFloat() / max(1, min(sizeA, sizeB)).toFloat()
-        if (ratio > 1.75f) return false
+        if (ratio > 1.65f) return false
 
         if (verticalMode) {
-            val charW = max(14, min(a.bounds.width(), b.bounds.width()))
-            val padX = (charW * 0.65f).roundToInt()
-            val padY = (charW * 0.45f).roundToInt()
+            val charW = max(12, min(a.bounds.width(), b.bounds.width()))
+            val padX = (charW * 0.60f).roundToInt()
+            val padY = (charW * 0.40f).roundToInt()
 
             val overlapY = min(a.bounds.bottom, b.bounds.bottom) - max(a.bounds.top, b.bounds.top)
             if (overlapY < -padY && abs(a.bounds.centerY() - b.bounds.centerY()) > max(a.bounds.height(), b.bounds.height())) {
                 return false
             }
-            if (overlapY < 0 && abs(a.bounds.centerX() - b.bounds.centerX()) > charW * 1.4f) {
+            if (overlapY < 0 && abs(a.bounds.centerX() - b.bounds.centerX()) > charW * 1.35f) {
                 return false
             }
             val expanded = Rect(
@@ -173,27 +178,99 @@ object BubbleGrouper {
                 a.bounds.right + padX,
                 a.bounds.bottom + padY
             )
-            return Rect.intersects(expanded, b.bounds)
+            if (!Rect.intersects(expanded, b.bounds)) return false
+            if (bitmap != null && hasVisualSeparator(bitmap, a.bounds, b.bounds, verticalGap = false)) {
+                return false
+            }
+            return true
         }
 
-        val lineH = max(14, min(a.bounds.height(), b.bounds.height()))
+        val lineH = max(12, min(a.bounds.height(), b.bounds.height()))
         val overlapX = min(a.bounds.right, b.bounds.right) - max(a.bounds.left, b.bounds.left)
         val overlapY = min(a.bounds.bottom, b.bounds.bottom) - max(a.bounds.top, b.bounds.top)
         val gapX = -overlapX
         val gapY = -overlapY
 
-        val sameRow = overlapY >= min(a.bounds.height(), b.bounds.height()) * 0.35f
+        val sameRow = overlapY >= min(a.bounds.height(), b.bounds.height()) * 0.40f
         if (sameRow) {
-            // Only merge horizontally if words are right next to each other on the same line
-            return gapX <= (lineH * 0.65f).roundToInt() && ratio <= 1.55f
+            if (gapX > (lineH * 0.42f).roundToInt() || ratio > 1.45f) return false
+            if (bitmap != null && gapX > 2 && hasVisualSeparator(bitmap, a.bounds, b.bounds, verticalGap = false)) {
+                return false
+            }
+            return true
         }
 
         // Stacked lines in the same speech bubble / paragraph
         val minW = min(a.bounds.width(), b.bounds.width())
-        return overlapX >= (minW * 0.20f).roundToInt() &&
-            gapY <= (lineH * 0.78f).roundToInt() &&
-            ratio <= 1.65f
+        val canStack = overlapX >= (minW * 0.25f).roundToInt() &&
+            gapY <= (lineH * 0.55f).roundToInt() &&
+            ratio <= 1.55f
+        if (!canStack) return false
+
+        if (bitmap != null && gapY > 2 && hasVisualSeparator(bitmap, a.bounds, b.bounds, verticalGap = true)) {
+            return false
+        }
+        return true
     }
+
+    /**
+     * Checks if there is a button border, speech bubble outline, or contrasting background strip
+     * between two adjacent OCR boxes so two separate buttons/bubbles are never merged into one.
+     */
+    private fun hasVisualSeparator(
+        bitmap: Bitmap,
+        a: Rect,
+        b: Rect,
+        verticalGap: Boolean
+    ): Boolean {
+        return try {
+            if (verticalGap) {
+                val topRect = if (a.bottom <= b.top) a else b
+                val botRect = if (a.bottom <= b.top) b else a
+                val y1 = (topRect.bottom + 1).coerceIn(0, bitmap.height - 1)
+                val y2 = (botRect.top - 1).coerceIn(0, bitmap.height - 1)
+                if (y2 - y1 < 3) return false
+
+                val xLeft = max(topRect.left, botRect.left)
+                val xRight = min(topRect.right, botRect.right)
+                if (xRight <= xLeft) return false
+
+                val sampleX = ((xLeft + xRight) * 0.5f).roundToInt().coerceIn(0, bitmap.width - 1)
+                val refColor = bitmap.getPixel(sampleX, y1)
+                val refLum = lum(refColor)
+                var maxDiff = 0.0
+                for (y in y1..y2 step max(1, (y2 - y1) / 8)) {
+                    val d = abs(lum(bitmap.getPixel(sampleX, y)) - refLum)
+                    if (d > maxDiff) maxDiff = d
+                }
+                maxDiff > 32.0
+            } else {
+                val leftRect = if (a.right <= b.left) a else b
+                val rightRect = if (a.right <= b.left) b else a
+                val x1 = (leftRect.right + 1).coerceIn(0, bitmap.width - 1)
+                val x2 = (rightRect.left - 1).coerceIn(0, bitmap.width - 1)
+                if (x2 - x1 < 3) return false
+
+                val yTop = max(leftRect.top, rightRect.top)
+                val yBot = min(leftRect.bottom, rightRect.bottom)
+                if (yBot <= yTop) return false
+
+                val sampleY = ((yTop + yBot) * 0.5f).roundToInt().coerceIn(0, bitmap.height - 1)
+                val refLum = lum(bitmap.getPixel(x1, sampleY))
+                var maxDiff = 0.0
+                for (x in x1..x2 step max(1, (x2 - x1) / 8)) {
+                    val d = abs(lum(bitmap.getPixel(x, sampleY)) - refLum)
+                    if (d > maxDiff) maxDiff = d
+                }
+                maxDiff > 32.0
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun lum(c: Int): Double =
+        0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)
 
     private fun resolveOverlaps(rects: List<Rect>) {
         for (i in rects.indices) {
