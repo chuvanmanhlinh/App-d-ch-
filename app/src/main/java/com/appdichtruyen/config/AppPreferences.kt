@@ -26,8 +26,8 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_AUTO_FALLBACK, value).apply()
 
     var scrollDebounceMs: Long
-        get() = prefs.getLong(KEY_SCROLL_DEBOUNCE, 180L)
-        set(value) = prefs.edit().putLong(KEY_SCROLL_DEBOUNCE, value.coerceIn(80L, 600L)).apply()
+        get() = prefs.getLong(KEY_SCROLL_DEBOUNCE, 110L)
+        set(value) = prefs.edit().putLong(KEY_SCROLL_DEBOUNCE, value.coerceIn(60L, 600L)).apply()
 
     var overlayAlpha: Int
         get() = prefs.getInt(KEY_OVERLAY_ALPHA, 245)

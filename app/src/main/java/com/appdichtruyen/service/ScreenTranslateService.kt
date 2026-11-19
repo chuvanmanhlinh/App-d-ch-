@@ -334,13 +334,13 @@ class ScreenTranslateService : Service() {
                     }
                 }
 
-                delay(90)
+                delay(65)
             }
         }
     }
 
     /**
-     * Briefly hides our own overlay for ~45ms so MediaProjection captures the raw
+     * Briefly hides our own overlay for ~55ms so MediaProjection captures the raw
      * comic page underneath without reading our own translated Vietnamese text.
      */
     private suspend fun runCleanOcrAndTranslate() {
@@ -351,7 +351,7 @@ class ScreenTranslateService : Service() {
                 overlayView?.visibility = View.INVISIBLE
                 dockController?.setVisibleForCapture(false)
             }
-            delay(85)
+            delay(55)
 
             val cleanBitmap = grabLatestBitmap()
 

@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -34,8 +35,9 @@ import java.util.concurrent.TimeUnit
 class TranslationRepository(private val prefs: AppPreferences) {
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
+        .connectionPool(ConnectionPool(8, 2, TimeUnit.MINUTES))
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(22, TimeUnit.SECONDS)
         .build()
 
     private val cache = LruCache<String, String>(1500)
@@ -73,7 +75,8 @@ class TranslationRepository(private val prefs: AppPreferences) {
                 when (mode) {
                     TranslateMode.ONLINE_GEMINI -> {
                         if (prefs.geminiApiKey.isNotBlank()) {
-                            translateBatchGemini(uncached)
+                            runCatching { translateBatchGemini(uncached) }
+                                .onFailure { translateBatchGoogle(uncached, lang) }
                         } else {
                             translateBatchGoogle(uncached, lang)
                         }
@@ -119,7 +122,7 @@ class TranslationRepository(private val prefs: AppPreferences) {
 
         // Translate each bubble independently in parallel (max 5 concurrent)
         // so no bubble is ever dropped or merged by a delimiter failure.
-        val gate = Semaphore(5)
+        val gate = Semaphore(8)
         coroutineScope {
             bubbles.map { bubble ->
                 async(Dispatchers.IO) {
@@ -172,13 +175,19 @@ class TranslationRepository(private val prefs: AppPreferences) {
         }
 
         val prompt = """
-            Bạn là biên dịch viên truyện tranh (manga/manhwa/manhua/comic) chuyên nghiệp sang tiếng Việt.
+            Bạn là biên dịch viên truyện tranh 18+ (manga/manhwa/manhua/doujinshi/comic) chuyên nghiệp sang tiếng Việt.
             Quy tắc bắt buộc:
-            1. Dịch ĐẦY ĐỦ NGHĨA và CHÍNH XÁC 100% nội dung gốc, không tự ý lược bỏ ý quan trọng.
-            2. Văn phong hội thoại tiếng Việt tự nhiên, mượt mà, đúng ngữ cảnh và sắc thái nhân vật.
+            1. Dịch ĐẦY ĐỦ NGHĨA, TRUNG THỰC 100%, giữ nguyên sắc thái hội thoại người lớn (18+), tiếng lóng hoặc từ ngữ nhạy cảm/táo bạo đúng ngữ cảnh truyện — TUYỆT ĐỐI KHÔNG kiểm duyệt, không lược bỏ, không nói giảm nói tránh.
+            2. Văn phong tiếng Việt tự nhiên, mượt mà, đúng ngôi xưng của nhân vật.
             3. CHỈ trả về mảng JSON dạng [{"id": 0, "vi": "..."}].
             Input: $items
         """.trimIndent()
+
+        val safetySettings = JSONArray()
+            .put(JSONObject().put("category", "HARM_CATEGORY_HARASSMENT").put("threshold", "BLOCK_NONE"))
+            .put(JSONObject().put("category", "HARM_CATEGORY_HATE_SPEECH").put("threshold", "BLOCK_NONE"))
+            .put(JSONObject().put("category", "HARM_CATEGORY_SEXUALLY_EXPLICIT").put("threshold", "BLOCK_NONE"))
+            .put(JSONObject().put("category", "HARM_CATEGORY_DANGEROUS_CONTENT").put("threshold", "BLOCK_NONE"))
 
         val payload = JSONObject()
             .put(
@@ -187,6 +196,7 @@ class TranslationRepository(private val prefs: AppPreferences) {
                     JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
                 )
             )
+            .put("safetySettings", safetySettings)
             .put(
                 "generationConfig",
                 JSONObject()
