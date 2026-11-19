@@ -10,7 +10,6 @@ import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
-import android.text.TextUtils
 import android.util.TypedValue
 import android.view.View
 import com.appdichtruyen.model.SpeechBubble
@@ -46,8 +45,9 @@ class BubbleOverlayView(context: Context) : View(context) {
     private var overlayAlpha: Int = 245
     private var overlayEnabled: Boolean = true
     private val maxCornerRadius = dp(8f)
-    private val minSp = 7f
-    private val maxSp = 20f
+    private val minSp = 4.5f
+    private val readableSp = 9.5f
+    private val maxSp = 13.5f
 
     fun setOverlayAlpha(alpha: Int) {
         overlayAlpha = alpha.coerceIn(140, 255)
@@ -93,15 +93,75 @@ class BubbleOverlayView(context: Context) : View(context) {
             if (text.isEmpty()) continue
 
             val b = bubble.bounds
-            val left = (b.left * sx - offsetX).coerceIn(0f, width.toFloat())
-            val top = (b.top * sy - offsetY).coerceIn(0f, height.toFloat())
-            val right = (b.right * sx - offsetX).coerceIn(0f, width.toFloat())
-            val bottom = (b.bottom * sy - offsetY).coerceIn(0f, height.toFloat())
-            val boxW = right - left
-            val boxH = bottom - top
-            if (boxW < dp(16f) || boxH < dp(12f)) continue
+            val rawLeft = (b.left * sx - offsetX).coerceIn(0f, width.toFloat())
+            val rawTop = (b.top * sy - offsetY).coerceIn(0f, height.toFloat())
+            val rawRight = (b.right * sx - offsetX).coerceIn(0f, width.toFloat())
+            val rawBottom = (b.bottom * sy - offsetY).coerceIn(0f, height.toFloat())
+            val rawW = rawRight - rawLeft
+            val rawH = rawBottom - rawTop
+            if (rawW < dp(16f) || rawH < dp(12f)) continue
 
-            rectF.set(left, top, right, bottom)
+            // Prepare text style before fitting so measurements match actual draw
+            textPaint.color = bubble.textColor
+            if (bubble.isComplexBg) {
+                val shadowColor = if (Color.luminance(bubble.textColor) > 0.5f) {
+                    Color.argb(150, 0, 0, 0)
+                } else {
+                    Color.argb(130, 255, 255, 255)
+                }
+                textPaint.setShadowLayer(dp(1.5f), 0f, dp(0.5f), shadowColor)
+            } else {
+                textPaint.clearShadowLayer()
+            }
+
+            // Try original box first; expand up to 150% (1.5x) only if needed for readable text
+            var chosenLeft = rawLeft
+            var chosenTop = rawTop
+            var chosenRight = rawRight
+            var chosenBottom = rawBottom
+            var chosenLayout: StaticLayout? = null
+            var chosenPadX = 0f
+            var chosenPadY = 0f
+
+            val scales = floatArrayOf(1.0f, 1.18f, 1.34f, 1.50f)
+            val centerX = (rawLeft + rawRight) * 0.5f
+            val centerY = (rawTop + rawBottom) * 0.5f
+            val targetSize = sp(readableSp)
+
+            for (scale in scales) {
+                val halfW = (rawW * scale) * 0.5f
+                val halfH = (rawH * scale) * 0.5f
+                val cLeft = (centerX - halfW).coerceIn(0f, width.toFloat())
+                val cTop = (centerY - halfH).coerceIn(0f, height.toFloat())
+                val cRight = (centerX + halfW).coerceIn(0f, width.toFloat())
+                val cBottom = (centerY + halfH).coerceIn(0f, height.toFloat())
+                val cW = cRight - cLeft
+                val cH = cBottom - cTop
+
+                val padX = min(dp(4f), cW * 0.06f)
+                val padY = min(dp(2f), cH * 0.06f)
+                val availW = max(8, (cW - padX * 2).toInt())
+                val availH = max(8, (cH - padY * 2).toInt())
+
+                val candidate = fitTextLayout(text, availW, availH)
+                chosenLeft = cLeft
+                chosenTop = cTop
+                chosenRight = cRight
+                chosenBottom = cBottom
+                chosenPadX = padX
+                chosenPadY = padY
+                chosenLayout = candidate
+
+                if (textPaint.textSize >= targetSize && candidate.height <= availH) {
+                    break
+                }
+            }
+
+            val boxW = chosenRight - chosenLeft
+            val boxH = chosenBottom - chosenTop
+            val layout = chosenLayout ?: continue
+
+            rectF.set(chosenLeft, chosenTop, chosenRight, chosenBottom)
             val radius = min(maxCornerRadius, min(boxW, boxH) * 0.24f)
 
             clipPath.reset()
@@ -133,27 +193,9 @@ class BubbleOverlayView(context: Context) : View(context) {
             borderPaint.alpha = if (bubble.isComplexBg) 85 else 45
             canvas.drawRoundRect(rectF, radius, radius, borderPaint)
 
-            // 4. Auto-fit translated text strictly inside the bubble bounds
-            val innerPadX = min(dp(4f), boxW * 0.08f)
-            val innerPadY = min(dp(2f), boxH * 0.08f)
-            val availW = max(8, (boxW - innerPadX * 2).toInt())
-            val availH = max(8, (boxH - innerPadY * 2).toInt())
-
-            textPaint.color = bubble.textColor
-            if (bubble.isComplexBg) {
-                val shadowColor = if (Color.luminance(bubble.textColor) > 0.5f) {
-                    Color.argb(150, 0, 0, 0)
-                } else {
-                    Color.argb(130, 255, 255, 255)
-                }
-                textPaint.setShadowLayer(dp(1.5f), 0f, dp(0.5f), shadowColor)
-            } else {
-                textPaint.clearShadowLayer()
-            }
-
-            val layout = fitTextLayout(text, availW, availH)
-            val drawX = left + innerPadX
-            val drawY = top + max(innerPadY, (boxH - layout.height) * 0.5f)
+            // 4. Draw full translated text without ellipsis
+            val drawX = chosenLeft + chosenPadX
+            val drawY = chosenTop + max(chosenPadY, (boxH - layout.height) * 0.5f)
 
             canvas.translate(drawX, drawY)
             layout.draw(canvas)
@@ -167,10 +209,10 @@ class BubbleOverlayView(context: Context) : View(context) {
         var hi = sp(maxSp)
         var best = lo
 
-        repeat(8) {
+        repeat(9) {
             val mid = (lo + hi) * 0.5f
             textPaint.textSize = mid
-            val candidate = buildLayout(text, maxW, lineMult = 1.0f, maxLines = Int.MAX_VALUE)
+            val candidate = buildLayout(text, maxW, lineMult = 0.96f)
             if (candidate.height <= maxH) {
                 best = mid
                 lo = mid
@@ -180,34 +222,35 @@ class BubbleOverlayView(context: Context) : View(context) {
         }
 
         textPaint.textSize = best
-        var result = buildLayout(text, maxW, lineMult = 1.0f, maxLines = Int.MAX_VALUE)
+        var result = buildLayout(text, maxW, lineMult = 0.96f)
         if (result.height <= maxH) return result
 
-        // Tighter line spacing + slight horizontal condense before truncating
-        textPaint.textScaleX = 0.90f
-        result = buildLayout(text, maxW, lineMult = 0.90f, maxLines = Int.MAX_VALUE)
+        // Compress horizontally and tighten line spacing, never adding "..."
+        textPaint.textScaleX = 0.88f
+        result = buildLayout(text, maxW, lineMult = 0.88f)
         if (result.height <= maxH) return result
 
-        val lineH = max(1, result.getLineBottom(0) - result.getLineTop(0))
-        val allowedLines = max(1, maxH / lineH)
-        return buildLayout(text, maxW, lineMult = 0.90f, maxLines = allowedLines)
+        // Final fallback: shrink textSize down as much as needed so full text fits without ellipsis
+        var shrinkSp = minSp - 0.5f
+        while (shrinkSp >= 3.0f) {
+            textPaint.textSize = sp(shrinkSp)
+            result = buildLayout(text, maxW, lineMult = 0.85f)
+            if (result.height <= maxH) return result
+            shrinkSp -= 0.5f
+        }
+        return result
     }
 
     private fun buildLayout(
         text: String,
         widthPx: Int,
-        lineMult: Float,
-        maxLines: Int
+        lineMult: Float
     ): StaticLayout {
-        val builder = StaticLayout.Builder.obtain(text, 0, text.length, textPaint, widthPx)
+        return StaticLayout.Builder.obtain(text, 0, text.length, textPaint, widthPx)
             .setAlignment(Layout.Alignment.ALIGN_CENTER)
             .setIncludePad(false)
             .setLineSpacing(0f, lineMult)
-        if (maxLines < Int.MAX_VALUE) {
-            builder.setMaxLines(maxLines)
-            builder.setEllipsize(TextUtils.TruncateAt.END)
-        }
-        return builder.build()
+            .build()
     }
 
     private fun dp(value: Float): Float =

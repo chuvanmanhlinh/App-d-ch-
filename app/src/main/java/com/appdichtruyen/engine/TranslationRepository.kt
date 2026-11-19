@@ -29,8 +29,8 @@ import java.util.concurrent.TimeUnit
 class TranslationRepository(private val prefs: AppPreferences) {
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
         .build()
 
     private val cache = LruCache<String, String>(1500)
@@ -160,10 +160,10 @@ class TranslationRepository(private val prefs: AppPreferences) {
         }
 
         val prompt = """
-            Bạn là biên dịch viên truyện tranh (manga/manhwa/manhua/comic) sang tiếng Việt.
+            Bạn là biên dịch viên truyện tranh (manga/manhwa/manhua/comic) chuyên nghiệp sang tiếng Việt.
             Quy tắc bắt buộc:
-            1. Dịch cực kỳ ngắn gọn, súc tích, bỏ từ thừa để chữ nằm lọt vừa khít bóng thoại hẹp.
-            2. Văn phong hội thoại truyện tranh tự nhiên, xưng hô đúng ngữ cảnh (tôi/cậu, tao/mày, huynh/đệ, anh/em).
+            1. Dịch ĐẦY ĐỦ NGHĨA và CHÍNH XÁC 100% nội dung gốc, không tự ý lược bỏ ý quan trọng.
+            2. Văn phong hội thoại tiếng Việt tự nhiên, mượt mà, đúng ngữ cảnh và sắc thái nhân vật.
             3. CHỈ trả về mảng JSON dạng [{"id": 0, "vi": "..."}].
             Input: $items
         """.trimIndent()
@@ -178,7 +178,7 @@ class TranslationRepository(private val prefs: AppPreferences) {
             .put(
                 "generationConfig",
                 JSONObject()
-                    .put("temperature", 0.25)
+                    .put("temperature", 0.15)
                     .put("responseMimeType", "application/json")
             )
 
